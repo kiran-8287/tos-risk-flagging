@@ -40,5 +40,5 @@ Frontend runs at `http://localhost:3000`
 ## Notes
 
 - No virtual environment required
-- The ML model is not yet connected. Document upload works, but clause-level risk analysis is not available until the model is trained.
+- The ML model is integrated. Upload a document on the Analyze page to get clause-level risk predictions.
 - This is an educational screening tool and does not provide legal advice.

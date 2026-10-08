@@ -3,3 +3,27 @@ export interface DocumentInfo {
   title?: string;
   file_type?: string;
 }
+
+export interface ClauseResult {
+  id: string;
+  text: string;
+  label: "Safe" | "Neutral" | "Risky";
+  section?: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+export interface AnalysisResult {
+  id: string;
+  filename: string;
+  totalClauses: number;
+  safeCount: number;
+  neutralCount: number;
+  riskyCount: number;
+  safePercentage: number;
+  neutralPercentage: number;
+  riskyPercentage: number;
+  overallAssessment: string;
+  clauses: ClauseResult[];
+  riskyClauses: ClauseResult[];
+}

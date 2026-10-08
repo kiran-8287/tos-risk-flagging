@@ -1,0 +1,125 @@
+import pytest
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+
+class TestModelLoading:
+    def test_model_loader_import(self):
+        from app.ml.model_loader import model_loader
+        assert model_loader is not None
+
+    def test_model_and_vectorizer_load(self):
+        from app.ml.model_loader import model_loader
+        model, vectorizer = model_loader.load()
+        assert model is not None
+        assert vectorizer is not None
+
+    def test_vectorizer_transform_shape(self):
+        from app.ml.model_loader import model_loader
+        _, vectorizer = model_loader.load()
+        X = vectorizer.transform(["This is a test clause."])
+        assert X.shape[0] == 1
+        assert X.shape[1] > 0
+
+    def test_model_predict_returns_valid_labels(self):
+        from app.ml.model_loader import model_loader
+        model, vectorizer = model_loader.load()
+        X = vectorizer.transform(["This is a test clause.", "Another test clause."])
+        preds = model.predict(X)
+        assert len(preds) == 2
+        for label in preds:
+            assert label in {"Safe", "Neutral", "Risky"}
+
+
+class TestAnalysisEndpoint:
+    def test_sentence_level_predictions_and_risky_clause_filter(self, monkeypatch):
+        from app.api.routes import analysis
+
+        labels = ["Safe", "Risky", "Neutral", "Risky", "Safe", "Neutral"]
+        seen = {}
+        def controlled_predict(clauses):
+            seen["texts"] = [c.text for c in clauses]
+            return [{"id": c.clause_id, "text": c.text, "label": label,
+                     "section": c.section, "startOffset": c.start_offset,
+                     "endOffset": c.end_offset}
+                    for c, label in zip(clauses, labels)]
+
+        monkeypatch.setattr(analysis.predictor, "predict", controlled_predict)
+        text = ("We collect account data to provide the service. "
+                "We share data with service providers. You can delete your account. "
+                "We retain records as required by law. We may change these terms. "
+                "You may contact support with questions.")
+        response = client.post("/api/v1/documents/analyze-text", json={"text": text})
+        assert response.status_code == 200
+        data = response.json()
+        assert len(seen["texts"]) == len(data["clauses"]) == 6
+        assert all(c["label"] in {"Safe", "Neutral", "Risky"} for c in data["clauses"])
+        assert data["riskyCount"] == sum(c["label"] == "Risky" for c in data["clauses"]) == 2
+        assert data["riskyClauses"] == [c for c in data["clauses"] if c["label"] == "Risky"]
+        assert data["totalClauses"] == data["safeCount"] + data["neutralCount"] + data["riskyCount"]
+
+    def test_analyze_txt_file(self):
+        content = b"This is the first clause.\n\nThis is the second clause."
+        response = client.post(
+            "/api/v1/documents/analyze",
+            files={"file": ("test.txt", content, "text/plain")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert "filename" in data
+        assert "totalClauses" in data
+        assert "clauses" in data
+        assert data["filename"] == "test.txt"
+
+    def test_analyze_empty_file(self):
+        response = client.post(
+            "/api/v1/documents/analyze",
+            files={"file": ("empty.txt", b"", "text/plain")},
+        )
+        assert response.status_code == 400
+
+    def test_analyze_unsupported_extension(self):
+        response = client.post(
+            "/api/v1/documents/analyze",
+            files={"file": ("doc.zip", b"PK\x03\x04", "application/zip")},
+        )
+        assert response.status_code == 400
+
+    def test_analyze_no_file(self):
+        response = client.post("/api/v1/documents/analyze", files={})
+        assert response.status_code == 422
+
+    def test_analyze_result_labels(self):
+        content = b"We reserve the right to change these terms at any time.\n\nYou can delete your account at any time."
+        response = client.post(
+            "/api/v1/documents/analyze",
+            files={"file": ("test.txt", content, "text/plain")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for clause in data["clauses"]:
+            assert clause["label"] in {"Safe", "Neutral", "Risky"}
+            assert "text" in clause
+            assert "id" in clause
+
+    def test_analyze_result_structure(self):
+        content = b"Clause one is a longer clause with enough text.\n\nClause two is also a longer clause with enough text."
+        response = client.post(
+            "/api/v1/documents/analyze",
+            files={"file": ("test.txt", content, "text/plain")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "safeCount" in data
+        assert "neutralCount" in data
+        assert "riskyCount" in data
+        assert "overallAssessment" in data
+        assert data["totalClauses"] == len(data["clauses"])

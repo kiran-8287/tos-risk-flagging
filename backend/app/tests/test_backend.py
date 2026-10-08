@@ -8,7 +8,7 @@ client = TestClient(app)
 
 class TestHealthEndpoint:
     def test_health_check(self):
-        response = client.get("/health")
+        response = client.get("/api/v1/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
@@ -59,3 +59,12 @@ class TestClauseSegmenter:
         assert len(clauses) >= 1
         sections = [c.section for c in clauses if c.section]
         assert len(sections) > 0
+
+    def test_splits_sentences_inside_a_paragraph_and_preserves_text(self):
+        text = ("We collect account data to provide the service. "
+                "We share data with service providers. You can delete your account. "
+                "We retain records as required by law. We may change these terms. "
+                "You may contact support with questions.")
+        clauses = self.segmenter.segment(text)
+        assert len(clauses) == 6
+        assert all(text[c.start_offset:c.end_offset] == c.text for c in clauses)

@@ -1,17 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import health
+from app.api.routes import health, analysis
 from app.core.config import settings
+from app.ml.model_loader import model_loader
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="project name",
+    description="Terms of Service risk analysis API.",
 )
 
 
-# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -24,8 +24,8 @@ app.add_middleware(
 )
 
 
-# Include routers
-app.include_router(health.router, tags=["health"])
+app.include_router(health.router, prefix=settings.API_V1_STR, tags=["health"])
+app.include_router(analysis.router, prefix=settings.API_V1_STR, tags=["analysis"])
 
 
 @app.get("/")
@@ -35,3 +35,12 @@ async def root():
         "version": settings.VERSION,
         "docs": "/docs",
     }
+
+
+@app.on_event("startup")
+def startup_event():
+    try:
+        model_loader.load()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error("Failed to load model on startup: %s", exc)
